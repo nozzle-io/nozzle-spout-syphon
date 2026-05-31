@@ -47,6 +47,10 @@ void test_argument_parser_fills_product_controls() {
         "--publish", "off",
         "--width", "1280",
         "--height", "720",
+        "--run",
+        "--frames", "12",
+        "--timeout-ms", "250",
+        "--idle-sleep-ms", "3",
     };
     auto *argv = const_cast<char **>(args);
     nozzle_spout_syphon::parse_result parsed = nozzle_spout_syphon::parse_arguments(
@@ -60,18 +64,43 @@ void test_argument_parser_fills_product_controls() {
     require(!parsed.config.publish_enabled, "publish toggle is stored");
     require(parsed.config.requested_width == 1280, "width is stored");
     require(parsed.config.requested_height == 720, "height is stored");
+    require(parsed.config.run_bridge, "run flag is stored");
+    require(parsed.config.frame_limit == 12, "frame limit is stored");
+    require(parsed.config.timeout_ms == 250, "timeout is stored");
+    require(parsed.config.idle_sleep_ms == 3, "idle sleep is stored");
 }
 
-void test_status_report_is_honest_about_unavailable_runtime() {
+void test_status_report_is_honest_about_platform_runtime_state() {
     nozzle_spout_syphon::app_config config{};
     config.requested_width = 640;
     config.requested_height = 360;
     nozzle_spout_syphon::bridge_status status = nozzle_spout_syphon::query_platform_bridge_status(config);
-    require(!status.bridge_available, "bridge is unavailable in scaffold");
-    require(!status.runtime_supported, "runtime is unsupported in scaffold");
     const std::string report = nozzle_spout_syphon::build_status_report(config, status);
+
+#if defined(__APPLE__)
+    require(status.platform_name == "macOS", "macOS platform is reported");
+    require(status.external_system_name == "Syphon", "Syphon target is reported");
+    require(status.bridge_available, "macOS Syphon bridge is compiled");
+    require(!status.runtime_supported, "macOS runtime support remains unclaimed without smoke evidence");
+    require(report.find("Bridge available: yes") != std::string::npos, "report says bridge available");
+    require(report.find("Runtime supported: no") != std::string::npos, "report does not claim runtime support");
+    require(
+        report.find("Syphon Metal runtime bridge is compiled") != std::string::npos,
+        "report says the Syphon bridge was compiled"
+    );
+    require(
+        report.find("runtime support remains unclaimed") != std::string::npos ||
+        report.find("no default Metal device") != std::string::npos,
+        "report avoids claiming host smoke coverage"
+    );
+#elif defined(_WIN32)
+    require(status.platform_name == "Windows", "Windows platform is reported");
+    require(status.external_system_name == "Spout", "Spout target is reported");
+    require(!status.bridge_available, "Windows Spout bridge is still unavailable");
+    require(!status.runtime_supported, "Windows Spout runtime is still unsupported");
     require(report.find("Bridge available: no") != std::string::npos, "report says bridge unavailable");
     require(report.find("Runtime supported: no") != std::string::npos, "report says runtime unsupported");
+#endif
     require(report.find("not runtime-validated") != std::string::npos, "report avoids runtime format validation claim");
 }
 
@@ -92,7 +121,7 @@ int main() {
     test_direction_parsing_accepts_canonical_modes();
     test_publish_toggle_parsing_is_explicit();
     test_argument_parser_fills_product_controls();
-    test_status_report_is_honest_about_unavailable_runtime();
+    test_status_report_is_honest_about_platform_runtime_state();
     test_invalid_arguments_fail_without_fallback_guessing();
     return 0;
 }

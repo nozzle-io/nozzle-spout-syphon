@@ -20,15 +20,24 @@ test -f "$package_root_dir/THIRD-PARTY-NOTICES.md"
 
 case "$platform" in
   macos)
-    app="$package_root_dir/nozzle-spout-syphon.app"
+    app="$package_root_dir/nozzle-syphon.app"
     info_plist="$app/Contents/Info.plist"
-    binary="$app/Contents/MacOS/nozzle-spout-syphon"
+    binary="$app/Contents/MacOS/nozzle-syphon"
+    syphon_framework="$app/Contents/Frameworks/Syphon.framework"
     test -d "$app"
     test -f "$info_plist"
     test -f "$binary"
-    /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$info_plist" | grep -F 'org.nozzle-io.spout-syphon'
+    test -f "$syphon_framework/Syphon"
+    /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$info_plist" | grep -F 'org.nozzle-io.syphon'
     file "$binary" | tee package-binary-file.txt
     grep -F 'Mach-O' package-binary-file.txt
+    lipo -archs "$binary" | grep -F 'arm64'
+    lipo -archs "$binary" | grep -F 'x86_64'
+    lipo -archs "$syphon_framework/Syphon" | grep -F 'arm64'
+    lipo -archs "$syphon_framework/Syphon" | grep -F 'x86_64'
+    otool -L "$binary" | grep -F '@rpath/Syphon.framework/Versions/A/Syphon'
+    otool -l "$binary" | grep -A3 'LC_RPATH' | grep -F '@executable_path/../Frameworks'
+    "$binary" --help | grep -F 'macOS runs the Syphon Metal bridge'
     codesign --verify --deep --strict --verbose=4 "$app"
     ;;
   *)

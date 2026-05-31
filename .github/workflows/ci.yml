@@ -27,6 +27,19 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Build Syphon framework
+        run: |
+          xcodebuild \
+            -project deps/Syphon-Framework/Syphon.xcodeproj \
+            -scheme Syphon \
+            -configuration Release \
+            -derivedDataPath build/syphon-derived \
+            CODE_SIGNING_ALLOWED=NO \
+            MACOSX_DEPLOYMENT_TARGET=12.0 \
+            ARCHS="arm64 x86_64" \
+            ONLY_ACTIVE_ARCH=NO \
+            build
+
       - name: Configure
         run: |
           cmake -S . -B build \
@@ -45,17 +58,17 @@ jobs:
         id: meta
         shell: bash
         run: |
-          repo="${{ github.event.repository.name }}"
+          product="nozzle-syphon"
           short_sha="${GITHUB_SHA::7}"
           platform="macos"
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
-            base="${repo}-${GITHUB_REF_NAME}-${platform}"
+            base="${product}-${GITHUB_REF_NAME}-${platform}"
           elif [[ "${GITHUB_REF}" == refs/heads/main ]]; then
-            base="${repo}-latest-${short_sha}-${platform}"
+            base="${product}-latest-${short_sha}-${platform}"
           elif [[ "${GITHUB_REF}" == refs/heads/stable ]]; then
-            base="${repo}-stable-${short_sha}-${platform}"
+            base="${product}-stable-${short_sha}-${platform}"
           else
-            base="${repo}-ci-${short_sha}-${platform}"
+            base="${product}-ci-${short_sha}-${platform}"
           fi
           echo "package_root=${base}" >> "$GITHUB_OUTPUT"
           echo "package_name=${base}.zip" >> "$GITHUB_OUTPUT"
@@ -105,17 +118,17 @@ jobs:
         id: meta
         shell: bash
         run: |
-          repo="${{ github.event.repository.name }}"
+          product="nozzle-spout"
           short_sha="${GITHUB_SHA::7}"
           platform="windows-x64"
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
-            base="${repo}-${GITHUB_REF_NAME}-${platform}"
+            base="${product}-${GITHUB_REF_NAME}-${platform}"
           elif [[ "${GITHUB_REF}" == refs/heads/main ]]; then
-            base="${repo}-latest-${short_sha}-${platform}"
+            base="${product}-latest-${short_sha}-${platform}"
           elif [[ "${GITHUB_REF}" == refs/heads/stable ]]; then
-            base="${repo}-stable-${short_sha}-${platform}"
+            base="${product}-stable-${short_sha}-${platform}"
           else
-            base="${repo}-ci-${short_sha}-${platform}"
+            base="${product}-ci-${short_sha}-${platform}"
           fi
           echo "package_root=${base}" >> "$GITHUB_OUTPUT"
           echo "package_name=${base}.zip" >> "$GITHUB_OUTPUT"
@@ -159,7 +172,7 @@ jobs:
           unzip -q "$windows_package" -d verify-windows
 
           scripts/verify-package.sh macos "verify-macos/${{ needs.build-macos.outputs.package_root }}"
-          test -f "verify-windows/${{ needs.build-windows.outputs.package_root }}/nozzle-spout-syphon.exe"
+          test -f "verify-windows/${{ needs.build-windows.outputs.package_root }}/nozzle-spout.exe"
           test -f "verify-windows/${{ needs.build-windows.outputs.package_root }}/README.md"
           test -f "verify-windows/${{ needs.build-windows.outputs.package_root }}/LICENSE"
           test -f "verify-windows/${{ needs.build-windows.outputs.package_root }}/THIRD-PARTY-NOTICES.md"
@@ -184,8 +197,8 @@ jobs:
           set -euo pipefail
           test -f "${{ needs.build-macos.outputs.package_name }}"
           test -f "${{ needs.build-windows.outputs.package_name }}"
-          unzip -l "${{ needs.build-macos.outputs.package_name }}" | grep -F 'nozzle-spout-syphon.app/Contents/MacOS/nozzle-spout-syphon'
-          unzip -l "${{ needs.build-windows.outputs.package_name }}" | grep -F 'nozzle-spout-syphon.exe'
+          unzip -l "${{ needs.build-macos.outputs.package_name }}" | grep -F 'nozzle-syphon.app/Contents/MacOS/nozzle-syphon'
+          unzip -l "${{ needs.build-windows.outputs.package_name }}" | grep -F 'nozzle-spout.exe'
 
       - name: Delete old latest release
         if: github.ref == 'refs/heads/main'
@@ -193,7 +206,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if gh release view latest --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
-            gh release delete latest --yes --repo "${GITHUB_REPOSITORY}"
+            gh release delete latest --cleanup-tag --yes --repo "${GITHUB_REPOSITORY}"
           else
             echo "No existing latest release to delete"
           fi
@@ -224,7 +237,7 @@ jobs:
         run: |
           if [[ "${GITHUB_REF}" == refs/heads/main ]]; then
             title="Latest development build"
-            notes="Replaceable development snapshot from main at ${GITHUB_SHA}. Runtime Spout/Syphon bridging is not implemented in this scaffold."
+            notes="Replaceable development snapshot from main at ${GITHUB_SHA}. macOS packages contain the nozzle-syphon Syphon Metal bridge; Windows packages contain the nozzle-spout Spout scaffold/probe until D3D11 smoke evidence is added."
             gh release create latest \
               "${{ needs.build-macos.outputs.package_name }}" \
               "${{ needs.build-windows.outputs.package_name }}" \
@@ -235,7 +248,7 @@ jobs:
               --prerelease
           else
             title="${GITHUB_REF_NAME}"
-            notes="Versioned nozzle-spout-syphon package artifacts. Runtime support claims require separate manual smoke evidence."
+            notes="Versioned bridge package artifacts. Runtime support claims require separate manual smoke evidence per platform and direction."
             gh release create "${GITHUB_REF_NAME}" \
               "${{ needs.build-macos.outputs.package_name }}" \
               "${{ needs.build-windows.outputs.package_name }}" \

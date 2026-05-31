@@ -1,3 +1,6 @@
 [submodule "nozzle"]
 	path = nozzle
-	url = git@github.com:nozzle-io/nozzle.git
+	url = https://github.com/nozzle-io/nozzle.git
+[submodule "deps/Syphon-Framework"]
+	path = deps/Syphon-Framework
+	url = https://github.com/Syphon/Syphon-Framework.git

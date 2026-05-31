@@ -18,6 +18,11 @@ struct app_config {
     bool publish_enabled{true};
     std::uint32_t requested_width{0};
     std::uint32_t requested_height{0};
+    std::uint32_t frame_limit{0};
+    std::uint64_t timeout_ms{1000};
+    std::uint32_t idle_sleep_ms{10};
+    bool run_bridge{false};
+    bool list_sources{false};
     bool show_help{false};
 };
 

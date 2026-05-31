@@ -1,64 +1,75 @@
 # nozzle-spout-syphon
 
-`nozzle-spout-syphon` is the planned standalone bridge between [nozzle](https://github.com/nozzle-io/nozzle) and the established live-visual texture-sharing ecosystems:
+`nozzle-spout-syphon` is the repository for standalone bridges between [nozzle](https://github.com/nozzle-io/nozzle) and established live-visual texture-sharing ecosystems.
 
-- macOS: Syphon
-- Windows: Spout
+The deliverables are intentionally split by platform instead of pretending that one app name fits both runtimes:
 
-This repository is an initial public scaffold. It builds and packages a CLI/app shell with platform-separated Syphon and Spout placeholders, but it does **not** implement runtime texture bridging yet.
+- macOS app: `nozzle-syphon`
+- Windows executable: `nozzle-spout`
 
 ## Current status
 
 | Platform | Bridge target | CI package | Runtime bridge | Notes |
 | --- | --- | --- | --- | --- |
-| macOS | Syphon | Planned by GitHub Actions | Not implemented | Syphon SDK source/version/license still pending Phase 0 approval. |
-| Windows | Spout | Planned by GitHub Actions | Not implemented | Spout SDK source/version/license still pending Phase 0 approval. |
+| macOS | Syphon | `nozzle-syphon` app zip | Implemented but not support-claimed | Builds against Syphon Framework commit `71351d4b484cd2d1917867f7846a5cdca724552d`; the diagnostics intentionally keep `Runtime supported: no` until host smoke evidence is attached. |
+| Windows | Spout | `nozzle-spout.exe` zip | Not implemented | Spout2 `2.007.017` / `f49e2f469f8cb25f559a6eaa61a3f5b8173fc100` was audited; current code only probes `SpoutLibrary.dll` / `GetSpout`. |
 | Linux | N/A | N/A | Out of scope | Spout/Syphon do not define the Linux target for this issue. |
 
-Do not read a CI artifact as runtime support. CI currently proves only buildability, package shape, and that the scaffold reports a clear unavailable bridge state.
+Do not read a CI artifact as end-user runtime proof. CI proves buildability, package shape, and static behavior. Manual host smoke tests still decide whether a direction/platform is actually usable.
 
-## Intended modes
-
-The app shell reserves these two bridge directions:
+## Bridge modes
 
 ```text
 external-to-nozzle  # Syphon/Spout sender -> nozzle sender
 nozzle-to-external  # nozzle sender -> Syphon/Spout sender
 ```
 
-The CLI exposes the product controls required by the roadmap:
+Common CLI controls:
 
-- source sender name selection;
-- target sender name;
-- publish enabled toggle;
-- requested resolution display;
-- frame-rate/status diagnostics fields;
-- explicit error state when the platform bridge is unavailable.
-
-Because runtime SDK integration is not implemented, every run reports `Bridge available: no` and exits successfully after printing diagnostics unless argument parsing fails.
+- `--mode external-to-nozzle|nozzle-to-external`
+- `--source NAME`
+- `--target NAME`
+- `--publish on|off` (`--publish off` is diagnostics-only and is rejected with `--run`)
+- `--width N --height N` for diagnostics
+- `--list` to list visible platform sources
+- `--run` to run the platform bridge
+- `--frames N` where `0` means run until stopped
+- `--timeout-ms N`
+- `--idle-sleep-ms N`
 
 ## Build
 
 ```sh
 git clone --recursive https://github.com/nozzle-io/nozzle-spout-syphon.git
 cd nozzle-spout-syphon
-cmake -S . -B build -DNOZZLE_SPOUT_SYPHON_BUILD_TESTS=ON
-cmake --build build --config RelWithDebInfo
-ctest --test-dir build --output-on-failure -C RelWithDebInfo
 ```
 
-macOS universal CI builds use:
+### macOS universal `nozzle-syphon`
+
+Syphon Framework must be built before CMake configuration:
 
 ```sh
+xcodebuild \
+  -project deps/Syphon-Framework/Syphon.xcodeproj \
+  -scheme Syphon \
+  -configuration Release \
+  -derivedDataPath build/syphon-derived \
+  CODE_SIGNING_ALLOWED=NO \
+  MACOSX_DEPLOYMENT_TARGET=12.0 \
+  ARCHS="arm64 x86_64" \
+  ONLY_ACTIVE_ARCH=NO \
+  build
+
 cmake -S . -B build \
   -DCMAKE_BUILD_TYPE=RelWithDebInfo \
   -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 \
   -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
   -DNOZZLE_SPOUT_SYPHON_BUILD_TESTS=ON
 cmake --build build --config RelWithDebInfo
+ctest --test-dir build --output-on-failure -C RelWithDebInfo
 ```
 
-Windows x64 CI builds use:
+### Windows x64 `nozzle-spout`
 
 ```powershell
 cmake -S . -B build -A x64 -DNOZZLE_SPOUT_SYPHON_BUILD_TESTS=ON
@@ -70,45 +81,61 @@ Linux configuration intentionally fails because Linux is out of scope for this b
 
 ## Usage
 
+Diagnostics:
+
 ```sh
-./build/nozzle-spout-syphon --help
-./build/nozzle-spout-syphon \
-  --mode external-to-nozzle \
-  --source syphon_or_spout_sender \
-  --target nozzle_bridge \
-  --publish on \
-  --width 1920 \
-  --height 1080
+./build/nozzle-syphon.app/Contents/MacOS/nozzle-syphon --help
+./build/nozzle-syphon.app/Contents/MacOS/nozzle-syphon --list
 ```
 
-The current output is a status report, not a live bridge. Runtime support requires the Phase 0 SDK decision and per-direction smoke evidence.
+Syphon sender to nozzle sender. The named Syphon source must already be visible; missing-source retry is not claimed yet:
+
+```sh
+./build/nozzle-syphon.app/Contents/MacOS/nozzle-syphon \
+  --mode external-to-nozzle \
+  --source syphon_sender_name \
+  --target nozzle_bridge \
+  --run
+```
+
+nozzle sender to Syphon sender. The named nozzle source must already exist before startup; missing-source retry is not claimed yet:
+
+```sh
+./build/nozzle-syphon.app/Contents/MacOS/nozzle-syphon \
+  --mode nozzle-to-external \
+  --source nozzle_sender_name \
+  --target syphon_bridge \
+  --run
+```
+
+Windows currently reports the Spout probe result and refuses `--run`; that is deliberate until the D3D11 Spout integration and smoke evidence exist.
 
 ## Release artifacts
 
-Latest release assets from `main` are expected to use:
+Latest release assets from `main` use product-specific names:
 
 ```text
-nozzle-spout-syphon-latest-<short_sha>-macos.zip
-nozzle-spout-syphon-latest-<short_sha>-windows-x64.zip
+nozzle-syphon-latest-<short_sha>-macos.zip
+nozzle-spout-latest-<short_sha>-windows-x64.zip
 ```
 
 Versioned tag assets use:
 
 ```text
-nozzle-spout-syphon-<tag>-macos.zip
-nozzle-spout-syphon-<tag>-windows-x64.zip
+nozzle-syphon-<tag>-macos.zip
+nozzle-spout-<tag>-windows-x64.zip
 ```
 
-The zips contain the app/executable plus `README.md`, `LICENSE`, and `THIRD-PARTY-NOTICES.md`.
+The zips contain the app/executable plus `README.md`, `LICENSE`, and `THIRD-PARTY-NOTICES.md`. The macOS zip also embeds `Syphon.framework` inside `nozzle-syphon.app/Contents/Frameworks`.
 
 ## Manual smoke evidence still required
 
-Before this repo claims real bridge support, attach manual evidence for:
+Before this repo claims production bridge support, attach evidence for:
 
-1. Syphon app -> bridge -> nozzle-viewer.
-2. nozzle-viewer/nozzle-mixer -> bridge -> Syphon receiver.
-3. Spout sender -> bridge -> nozzle-viewer.
-4. nozzle sender -> bridge -> Spout receiver.
+1. Syphon app -> `nozzle-syphon` -> nozzle-viewer.
+2. nozzle-viewer/nozzle-mixer -> `nozzle-syphon` -> Syphon receiver.
+3. Spout sender -> `nozzle-spout` -> nozzle-viewer.
+4. nozzle sender -> `nozzle-spout` -> Spout receiver.
 5. Non-square resolution.
 6. No vertical flip.
 7. No R/B swap.

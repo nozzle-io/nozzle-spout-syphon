@@ -1,8 +1,8 @@
 #include <app/app_config.hpp>
 
-#include <cstdlib>
 #include <limits>
 #include <sstream>
+#include <cstdlib>
 
 namespace nozzle_spout_syphon {
 
@@ -86,9 +86,14 @@ std::string usage_text(const char *program_name) {
         << "  --publish on|off     requested publish state\n"
         << "  --width N            requested width diagnostic, 0 means unknown\n"
         << "  --height N           requested height diagnostic, 0 means unknown\n"
+        << "  --run                run the platform bridge instead of printing diagnostics\n"
+        << "  --list               list external Syphon/Spout sources and exit\n"
+        << "  --frames N           maximum frames to bridge, 0 means run until stopped\n"
+        << "  --timeout-ms N       receiver/acquire timeout in milliseconds\n"
+        << "  --idle-sleep-ms N    polling sleep while waiting for frames\n"
         << "  --help               print this text\n"
         << "\n"
-        << "This scaffold reports bridge availability only. It does not perform runtime texture bridging.\n";
+        << "macOS runs the Syphon Metal bridge. Windows currently reports Spout probe status only.\n";
     return out.str();
 }
 
@@ -147,6 +152,42 @@ parse_result parse_arguments(int argc, char **argv) {
             if (!parse_u32(value, &result.config.requested_height)) {
                 result.ok = false;
                 result.error = "invalid height: " + value;
+                return result;
+            }
+        } else if (arg == "--run") {
+            result.config.run_bridge = true;
+        } else if (arg == "--list") {
+            result.config.list_sources = true;
+        } else if (arg == "--frames") {
+            if (!read_value(argc, argv, &i, &value, &result.error)) {
+                result.ok = false;
+                return result;
+            }
+            if (!parse_u32(value, &result.config.frame_limit)) {
+                result.ok = false;
+                result.error = "invalid frame limit: " + value;
+                return result;
+            }
+        } else if (arg == "--timeout-ms") {
+            if (!read_value(argc, argv, &i, &value, &result.error)) {
+                result.ok = false;
+                return result;
+            }
+            std::uint32_t parsed_timeout{0};
+            if (!parse_u32(value, &parsed_timeout)) {
+                result.ok = false;
+                result.error = "invalid timeout-ms: " + value;
+                return result;
+            }
+            result.config.timeout_ms = parsed_timeout;
+        } else if (arg == "--idle-sleep-ms") {
+            if (!read_value(argc, argv, &i, &value, &result.error)) {
+                result.ok = false;
+                return result;
+            }
+            if (!parse_u32(value, &result.config.idle_sleep_ms)) {
+                result.ok = false;
+                result.error = "invalid idle-sleep-ms: " + value;
                 return result;
             }
         } else {

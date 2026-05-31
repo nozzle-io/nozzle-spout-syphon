@@ -96,10 +96,11 @@ void test_status_report_is_honest_about_platform_runtime_state() {
 #elif defined(_WIN32)
     require(status.platform_name == "Windows", "Windows platform is reported");
     require(status.external_system_name == "Spout", "Spout target is reported");
-    require(!status.bridge_available, "Windows Spout bridge is still unavailable");
-    require(!status.runtime_supported, "Windows Spout runtime is still unsupported");
-    require(report.find("Bridge available: no") != std::string::npos, "report says bridge unavailable");
-    require(report.find("Runtime supported: no") != std::string::npos, "report says runtime unsupported");
+    require(status.bridge_available, "Windows Spout bridge is compiled");
+    require(!status.runtime_supported, "Windows Spout runtime support remains unclaimed");
+    require(report.find("Bridge available: yes") != std::string::npos, "report says bridge available");
+    require(report.find("Runtime supported: no") != std::string::npos, "report says runtime unsupported without smoke");
+    require(report.find("SpoutDX D3D11 bridge is compiled and linked") != std::string::npos, "report says SpoutDX path compiled");
 #endif
     require(report.find("not runtime-validated") != std::string::npos, "report avoids runtime format validation claim");
 }

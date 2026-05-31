@@ -237,7 +237,7 @@ jobs:
         run: |
           if [[ "${GITHUB_REF}" == refs/heads/main ]]; then
             title="Latest development build"
-            notes="Replaceable development snapshot from main at ${GITHUB_SHA}. macOS packages contain the nozzle-syphon Syphon Metal bridge; Windows packages contain the nozzle-spout Spout scaffold/probe until D3D11 smoke evidence is added."
+            notes="Replaceable development snapshot from main at ${GITHUB_SHA}. macOS packages contain the nozzle-syphon Syphon Metal bridge; Windows packages contain the nozzle-spout SpoutDX D3D11 bridge. Runtime support claims still require host smoke evidence."
             gh release create latest \
               "${{ needs.build-macos.outputs.package_name }}" \
               "${{ needs.build-windows.outputs.package_name }}" \

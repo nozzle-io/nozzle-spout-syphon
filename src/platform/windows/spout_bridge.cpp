@@ -1,17 +1,27 @@
 #include <app/status_report.hpp>
 
-#include <sstream>
-#include <string>
+#include <nozzle/backends/d3d11.hpp>
+#include <nozzle/receiver.hpp>
+#include <nozzle/sender.hpp>
 
-#if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
+#include <d3d11.h>
+#include <dxgi.h>
 #include <windows.h>
-#endif
+
+#include <SpoutDX.h>
+
+#include <chrono>
+#include <sstream>
+#include <string>
+#include <thread>
+#include <utility>
+#include <vector>
 
 namespace nozzle_spout_syphon {
 
@@ -20,138 +30,288 @@ namespace {
 constexpr const char *spout_upstream_tag = "2.007.017";
 constexpr const char *spout_upstream_sha = "f49e2f469f8cb25f559a6eaa61a3f5b8173fc100";
 constexpr const char *spout_license = "BSD-2-Clause";
-constexpr const char *spout_library_dll_name = "SpoutLibrary.dll";
-constexpr const char *spout_factory_symbol = "GetSpout";
+constexpr const char *spout_sdk_path = "deps/Spout2/SPOUTSDK/SpoutDirectX/SpoutDX";
 
-struct spout_probe_result {
-    bool library_loaded{false};
-    bool factory_found{false};
-    std::string detail{};
+struct d3d11_device_reference {
+    ID3D11Device *device{nullptr};
+
+    ~d3d11_device_reference() {
+        reset(nullptr);
+    }
+
+    d3d11_device_reference() = default;
+    d3d11_device_reference(const d3d11_device_reference &) = delete;
+    d3d11_device_reference &operator=(const d3d11_device_reference &) = delete;
+
+    void reset(ID3D11Device *next_device) {
+        if (device) {
+            device->Release();
+        }
+        device = next_device;
+    }
 };
 
-#if defined(_WIN32)
+std::chrono::steady_clock::time_point make_deadline(const app_config &config) {
+    const std::uint64_t timeout_ms = config.timeout_ms == 0 ? 1000 : config.timeout_ms;
+    return std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+}
 
-std::string windows_error_message(DWORD error_code) {
-    if (error_code == ERROR_SUCCESS) {
-        return "success";
+bool deadline_expired(std::chrono::steady_clock::time_point deadline) {
+    return deadline <= std::chrono::steady_clock::now();
+}
+
+std::chrono::milliseconds idle_sleep(const app_config &config) {
+    return std::chrono::milliseconds(config.idle_sleep_ms == 0 ? 1 : config.idle_sleep_ms);
+}
+
+const char *configured_receiver_name(const std::string &name) {
+    if (name.empty() || name == "default") {
+        return nullptr;
+    }
+    return name.c_str();
+}
+
+nozzle::texture_format format_from_dxgi(DXGI_FORMAT format) {
+    switch (format) {
+        case DXGI_FORMAT_R8_UNORM: return nozzle::texture_format::r8_unorm;
+        case DXGI_FORMAT_R8G8_UNORM: return nozzle::texture_format::rg8_unorm;
+        case DXGI_FORMAT_R8G8B8A8_UNORM: return nozzle::texture_format::rgba8_unorm;
+        case DXGI_FORMAT_B8G8R8A8_UNORM: return nozzle::texture_format::bgra8_unorm;
+        case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB: return nozzle::texture_format::rgba8_srgb;
+        case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB: return nozzle::texture_format::bgra8_srgb;
+        case DXGI_FORMAT_R16_UNORM: return nozzle::texture_format::r16_unorm;
+        case DXGI_FORMAT_R16G16_UNORM: return nozzle::texture_format::rg16_unorm;
+        case DXGI_FORMAT_R16G16B16A16_UNORM: return nozzle::texture_format::rgba16_unorm;
+        case DXGI_FORMAT_R16_FLOAT: return nozzle::texture_format::r16_float;
+        case DXGI_FORMAT_R16G16_FLOAT: return nozzle::texture_format::rg16_float;
+        case DXGI_FORMAT_R16G16B16A16_FLOAT: return nozzle::texture_format::rgba16_float;
+        case DXGI_FORMAT_R32_FLOAT: return nozzle::texture_format::r32_float;
+        case DXGI_FORMAT_R32G32_FLOAT: return nozzle::texture_format::rg32_float;
+        case DXGI_FORMAT_R32G32B32A32_FLOAT: return nozzle::texture_format::rgba32_float;
+        case DXGI_FORMAT_R32_UINT: return nozzle::texture_format::r32_uint;
+        case DXGI_FORMAT_R32G32B32A32_UINT: return nozzle::texture_format::rgba32_uint;
+        case DXGI_FORMAT_D32_FLOAT: return nozzle::texture_format::depth32_float;
+        default: return nozzle::texture_format::unknown;
+    }
+}
+
+std::string spout_status_message() {
+    std::ostringstream out;
+    out << "SpoutDX compile/link path is enabled from Spout2 " << spout_upstream_tag
+        << " (" << spout_upstream_sha << ", " << spout_license << ") at "
+        << spout_sdk_path << "; live host smoke evidence is still required";
+    return out.str();
+}
+
+bridge_run_result run_spout_to_nozzle(const app_config &config) {
+    bridge_run_result result{};
+
+    spoutDX receiver{};
+    receiver.SetReceiverName(configured_receiver_name(config.source_name));
+    if (!receiver.OpenDirectX11() || !receiver.GetDX11Device()) {
+        result.error_message = "failed to initialize SpoutDX D3D11 receiver device";
+        result.exit_code = 11;
+        return result;
     }
 
-    char *message = nullptr;
-    DWORD size = FormatMessageA(
-        FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
-        nullptr,
-        error_code,
-        MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
-        reinterpret_cast<LPSTR>(&message),
-        0,
-        nullptr
-    );
+    nozzle::sender sender{};
+    bool sender_created = false;
+    auto deadline = make_deadline(config);
 
-    std::string result = "Windows error " + std::to_string(error_code);
-    if (size != 0 && message) {
-        result += ": ";
-        result += message;
-        while (!result.empty() && (result.back() == '\n' || result.back() == '\r')) {
-            result.pop_back();
+    while (config.frame_limit == 0 || result.frames_processed < config.frame_limit) {
+        if (!receiver.ReceiveTexture()) {
+            if (deadline_expired(deadline)) {
+                result.error_message = "Spout sender not found or produced no D3D11 texture before timeout: " + config.source_name;
+                result.exit_code = 8;
+                return result;
+            }
+            std::this_thread::sleep_for(idle_sleep(config));
+            continue;
         }
+
+        if (!receiver.IsFrameNew()) {
+            if (deadline_expired(deadline)) {
+                result.error_message = "Spout sender connected but produced no new frame before timeout: " + config.source_name;
+                result.exit_code = 8;
+                return result;
+            }
+            std::this_thread::sleep_for(idle_sleep(config));
+            continue;
+        }
+
+        ID3D11Texture2D *texture = receiver.GetSenderTexture();
+        if (!texture) {
+            if (deadline_expired(deadline)) {
+                result.error_message = "Spout receiver connected but returned no D3D11 texture before timeout";
+                result.exit_code = 12;
+                return result;
+            }
+            std::this_thread::sleep_for(idle_sleep(config));
+            continue;
+        }
+
+        D3D11_TEXTURE2D_DESC texture_desc{};
+        texture->GetDesc(&texture_desc);
+        const nozzle::texture_format format = format_from_dxgi(texture_desc.Format);
+        if (format == nozzle::texture_format::unknown) {
+            result.error_message = "unsupported Spout DXGI texture format: " + std::to_string(static_cast<unsigned int>(texture_desc.Format));
+            result.exit_code = 4;
+            return result;
+        }
+
+        if (!sender_created) {
+            nozzle::sender_desc sender_desc{};
+            sender_desc.name = config.target_sender_name;
+            sender_desc.application_name = "nozzle-spout";
+            sender_desc.native_device.backend = nozzle::backend_type::d3d11;
+            sender_desc.native_device.device = receiver.GetDX11Device();
+            sender_desc.native_device.context = receiver.GetDX11Context();
+            auto sender_result = nozzle::sender::create(sender_desc);
+            if (!sender_result.ok()) {
+                result.error_message = "failed to create nozzle sender for Spout receiver: " + sender_result.error().message;
+                result.exit_code = 11;
+                return result;
+            }
+            sender = std::move(sender_result.value());
+            sender_created = true;
+        }
+
+        auto publish_result = sender.publish_native_texture(
+            texture,
+            texture_desc.Width,
+            texture_desc.Height,
+            format);
+        if (!publish_result.ok()) {
+            result.error_message = "failed to publish Spout D3D11 texture to nozzle: " + publish_result.error().message;
+            result.exit_code = 12;
+            return result;
+        }
+
+        deadline = make_deadline(config);
+        result.frames_processed = result.frames_processed + 1;
     }
 
-    if (message) {
-        LocalFree(message);
-    }
+    result.ok = true;
+    result.exit_code = 0;
+    result.status_message = "Spout -> nozzle bridge completed";
     return result;
 }
 
-spout_probe_result probe_spout_library() {
-    spout_probe_result result{};
-    HMODULE library = LoadLibraryA(spout_library_dll_name);
-    if (!library) {
-        result.detail = std::string(spout_library_dll_name) + " not loadable: " + windows_error_message(GetLastError());
-        return result;
+bridge_run_result run_nozzle_to_spout(const app_config &config) {
+    bridge_run_result result{};
+    d3d11_device_reference spout_device_reference{};
+    spoutDX sender{};
+    sender.SetSenderName(config.target_sender_name.c_str());
+    bool spout_opened = false;
+    nozzle::receiver receiver{};
+    bool receiver_created = false;
+    auto deadline = make_deadline(config);
+
+    while (!receiver_created) {
+        nozzle::receiver_desc receiver_desc{};
+        receiver_desc.name = config.source_name;
+        receiver_desc.application_name = "nozzle-spout";
+        auto receiver_result = nozzle::receiver::create(receiver_desc);
+        if (receiver_result.ok()) {
+            receiver = std::move(receiver_result.value());
+            receiver_created = true;
+            break;
+        }
+        if (deadline_expired(deadline)) {
+            result.error_message = "nozzle source not found before timeout: " + config.source_name;
+            result.exit_code = 8;
+            return result;
+        }
+        std::this_thread::sleep_for(idle_sleep(config));
     }
 
-    result.library_loaded = true;
-    FARPROC factory = GetProcAddress(library, spout_factory_symbol);
-    if (!factory) {
-        result.detail = std::string(spout_library_dll_name) + " loaded but GetSpout export is missing: " + windows_error_message(GetLastError());
-        FreeLibrary(library);
-        return result;
+    auto frame_deadline = make_deadline(config);
+    while (config.frame_limit == 0 || result.frames_processed < config.frame_limit) {
+        nozzle::acquire_desc acquire_desc{};
+        acquire_desc.timeout_ms = config.timeout_ms;
+        auto frame_result = receiver.acquire_frame(acquire_desc);
+        if (!frame_result.ok()) {
+            if (frame_result.error().code == nozzle::ErrorCode::Timeout ||
+                frame_result.error().code == nozzle::ErrorCode::SenderNotFound) {
+                if (deadline_expired(frame_deadline)) {
+                    result.error_message = "nozzle source produced no D3D11 frame before timeout: " + config.source_name;
+                    result.exit_code = 8;
+                    return result;
+                }
+                std::this_thread::sleep_for(idle_sleep(config));
+                continue;
+            }
+            result.error_message = "failed to acquire nozzle D3D11 frame: " + frame_result.error().message;
+            result.exit_code = 12;
+            return result;
+        }
+
+        nozzle::frame frame = std::move(frame_result.value());
+        ID3D11Texture2D *texture = nozzle::d3d11::get_texture(frame.get_texture());
+        if (!texture) {
+            result.error_message = "nozzle frame has no D3D11 texture";
+            result.exit_code = 11;
+            return result;
+        }
+
+        if (!spout_opened) {
+            ID3D11Device *texture_device = nullptr;
+            texture->GetDevice(&texture_device);
+            if (!texture_device) {
+                result.error_message = "failed to get D3D11 device from nozzle frame texture";
+                result.exit_code = 11;
+                return result;
+            }
+            spout_device_reference.reset(texture_device);
+            if (!sender.OpenDirectX11(spout_device_reference.device) || !sender.GetDX11Device()) {
+                result.error_message = "failed to initialize SpoutDX sender on nozzle frame D3D11 device";
+                result.exit_code = 11;
+                return result;
+            }
+            spout_opened = true;
+        }
+
+        if (!sender.SendTexture(texture)) {
+            result.error_message = "SpoutDX SendTexture failed";
+            result.exit_code = 12;
+            return result;
+        }
+        frame_deadline = make_deadline(config);
+        result.frames_processed = result.frames_processed + 1;
     }
 
-    result.factory_found = true;
-    result.detail = std::string(spout_library_dll_name) + " loaded and GetSpout export was found";
-    FreeLibrary(library);
+    result.ok = true;
+    result.exit_code = 0;
+    result.status_message = "nozzle -> Spout bridge completed";
     return result;
-}
-
-#else
-
-spout_probe_result probe_spout_library() {
-    spout_probe_result result{};
-    result.detail = "SpoutLibrary probe is Windows-only";
-    return result;
-}
-
-#endif
-
-std::string build_windows_spout_status_message(const spout_probe_result &probe) {
-    std::ostringstream out;
-    out << "Spout runtime research integrated; upstream Spout2 " << spout_upstream_tag
-        << " (" << spout_upstream_sha << ", " << spout_license << ") audited. ";
-
-    if (probe.factory_found) {
-        out << "SpoutLibrary discovery succeeded, but texture bridging is intentionally not enabled without a pinned SDK integration and host smoke evidence.";
-    } else if (probe.library_loaded) {
-        out << "SpoutLibrary DLL was found but is not ABI-compatible enough for runtime use: " << probe.detail << ".";
-    } else {
-        out << "No loadable SpoutLibrary DLL was found; vendored/pinned Spout SDK integration is still required.";
-    }
-
-    return out.str();
-}
-
-std::string build_windows_spout_error_message(const app_config &config, const spout_probe_result &probe) {
-    std::ostringstream out;
-    out << "Windows Spout runtime path is not implemented. "
-        << "Current code only performs DLL/export discovery and records upstream requirements. ";
-
-    if (config.direction == bridge_direction::external_to_nozzle) {
-        out << "Required next step: receive a Spout sender via SpoutDX/SpoutLibrary, prove ID3D11Texture2D lifetime/format/origin, then publish into nozzle without claiming zero-copy unless measured. ";
-    } else {
-        out << "Required next step: receive a nozzle frame, copy or wrap it into a D3D11 texture accepted by SpoutDX/SpoutLibrary SendTexture, then document copy mode. ";
-    }
-
-    out << "Probe: " << probe.detail;
-    return out.str();
 }
 
 } // namespace
 
 bridge_status query_platform_bridge_status(const app_config &config) {
-    const spout_probe_result probe = probe_spout_library();
-
     bridge_status status{};
     status.platform_name = "Windows";
     status.external_system_name = "Spout";
-    status.bridge_available = false;
+    status.bridge_available = true;
     status.runtime_supported = false;
     status.width = config.requested_width;
     status.height = config.requested_height;
     status.frames_per_second = 0.0;
-    status.status_message = build_windows_spout_status_message(probe);
-    status.error_message = build_windows_spout_error_message(config, probe);
+    status.status_message = spout_status_message();
+    status.error_message = "SpoutDX D3D11 bridge is compiled and linked, but live host smoke evidence is not attached yet";
     return status;
 }
 
 std::vector<std::string> list_platform_sources() {
-    return {};
+    spoutDX spout{};
+    return spout.GetSenderList();
 }
 
-bridge_run_result run_platform_bridge(const app_config &) {
-    bridge_run_result result{};
-    result.error_message = "Spout runtime bridge is not implemented in this build";
-    result.exit_code = 3;
-    return result;
+bridge_run_result run_platform_bridge(const app_config &config) {
+    if (config.direction == bridge_direction::external_to_nozzle) {
+        return run_spout_to_nozzle(config);
+    }
+    return run_nozzle_to_spout(config);
 }
 
 } // namespace nozzle_spout_syphon

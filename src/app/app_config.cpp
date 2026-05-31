@@ -93,7 +93,7 @@ std::string usage_text(const char *program_name) {
         << "  --idle-sleep-ms N    polling sleep while waiting for frames\n"
         << "  --help               print this text\n"
         << "\n"
-        << "macOS runs the Syphon Metal bridge. Windows currently reports Spout probe status only.\n";
+        << "macOS runs the Syphon Metal bridge. Windows runs the SpoutDX D3D11 bridge, with runtime support still gated on host smoke evidence.\n";
     return out.str();
 }
 

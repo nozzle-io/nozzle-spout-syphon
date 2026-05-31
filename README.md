@@ -12,7 +12,7 @@ The deliverables are intentionally split by platform instead of pretending that 
 | Platform | Bridge target | CI package | Runtime bridge | Notes |
 | --- | --- | --- | --- | --- |
 | macOS | Syphon | `nozzle-syphon` app zip | Implemented but not support-claimed | Builds against Syphon Framework commit `71351d4b484cd2d1917867f7846a5cdca724552d`; the diagnostics intentionally keep `Runtime supported: no` until host smoke evidence is attached. |
-| Windows | Spout | `nozzle-spout.exe` zip | Not implemented | Spout2 `2.007.017` / `f49e2f469f8cb25f559a6eaa61a3f5b8173fc100` was audited; current code only probes `SpoutLibrary.dll` / `GetSpout`. |
+| Windows | Spout | `nozzle-spout.exe` zip | Implemented but not support-claimed | Builds and links the pinned Spout2 `SpoutDX` D3D11 path at `f49e2f469f8cb25f559a6eaa61a3f5b8173fc100`; diagnostics keep `Runtime supported: no` until host smoke evidence is attached. |
 | Linux | N/A | N/A | Out of scope | Spout/Syphon do not define the Linux target for this issue. |
 
 Do not read a CI artifact as end-user runtime proof. CI proves buildability, package shape, and static behavior. Manual host smoke tests still decide whether a direction/platform is actually usable.
@@ -108,7 +108,7 @@ nozzle sender to Syphon sender. The named nozzle source must already exist befor
   --run
 ```
 
-Windows currently reports the Spout probe result and refuses `--run`; that is deliberate until the D3D11 Spout integration and smoke evidence exist.
+Windows builds and links the SpoutDX D3D11 bridge. `--list` enumerates visible Spout senders. `--run` attempts the compiled bridge path, but production runtime support is not claimed until host smoke evidence exists.
 
 ## Release artifacts
 
@@ -142,4 +142,4 @@ Before this repo claims production bridge support, attach evidence for:
 8. Alpha behavior documented.
 9. Sender disconnect/reconnect behavior.
 
-Performance claims must remain direction/platform-specific. Do not claim zero-copy until the exact path is proven.
+Performance claims must remain direction/platform-specific. Do not claim zero-copy until the exact path is proven. Current Windows CI proves Spout2 API compilation/linkage and package shape, not live GPU interop.

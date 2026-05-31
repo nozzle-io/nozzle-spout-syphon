@@ -61,13 +61,16 @@ foreach ($entry in $required) {
 }
 
 $verifiedExe = Join-Path 'verify-package' "$PackageRoot/nozzle-spout.exe"
-$runOut = Join-Path 'verify-package' 'nozzle-spout-run.out'
-$runErr = Join-Path 'verify-package' 'nozzle-spout-run.err'
-$runProcess = Start-Process -FilePath $verifiedExe -ArgumentList '--run' -RedirectStandardOutput $runOut -RedirectStandardError $runErr -Wait -PassThru -NoNewWindow
-$runExitCode = $runProcess.ExitCode
-if ($runExitCode -ne 3) {
-    throw "expected nozzle-spout.exe --run to exit 3 for unsupported Spout runtime, got $runExitCode"
+$helpOut = Join-Path 'verify-package' 'nozzle-spout-help.out'
+$listOut = Join-Path 'verify-package' 'nozzle-spout-list.out'
+& $verifiedExe --help 1> $helpOut
+if ($LASTEXITCODE -ne 0) {
+    throw "nozzle-spout.exe --help failed with exit code $LASTEXITCODE"
 }
-if (!(Select-String -LiteralPath $runErr -SimpleMatch 'Spout runtime bridge is not implemented')) {
-    throw "nozzle-spout.exe --run did not report unsupported Spout runtime"
+if (!(Select-String -LiteralPath $helpOut -SimpleMatch 'Windows runs the SpoutDX D3D11 bridge')) {
+    throw "nozzle-spout.exe --help did not report the compiled SpoutDX bridge"
+}
+& $verifiedExe --list 1> $listOut
+if ($LASTEXITCODE -ne 0) {
+    throw "nozzle-spout.exe --list failed with exit code $LASTEXITCODE"
 }

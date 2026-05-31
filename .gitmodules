@@ -4,3 +4,6 @@
 [submodule "deps/Syphon-Framework"]
 	path = deps/Syphon-Framework
 	url = https://github.com/Syphon/Syphon-Framework.git
+[submodule "deps/Spout2"]
+	path = deps/Spout2
+	url = https://github.com/leadedge/Spout2.git

@@ -1,0 +1,11 @@
+/build/
+/package/
+/verify-package/
+/*.zip
+/*.contents.txt
+*.user
+.DS_Store
+/package-binary-file.txt
+/package-contents.txt
+
+/build-*/

@@ -37,6 +37,8 @@ Common CLI controls:
 - `--timeout-ms N`
 - `--idle-sleep-ms N`
 
+Source selection is deliberately literal. `--source default` means the first visible platform source. A named Syphon source must exactly match the Syphon server name or app name reported by `--list`; a named Spout source is passed to SpoutDX as the receiver name. If two hosts publish confusing duplicate names, this tool does not claim deterministic disambiguation yet—rename the sender or capture manual smoke evidence for the exact host setup.
+
 ## Build
 
 ```sh

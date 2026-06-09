@@ -62,6 +62,26 @@ std::string selector_text(const source_selector &selector) {
     return selector.raw;
 }
 
+std::string quote_value(const std::string &value) {
+    std::string quoted{"\""};
+    for (char character : value) {
+        if (character == '\\' || character == '"') {
+            quoted.push_back('\\');
+            quoted.push_back(character);
+        } else if (character == '\n') {
+            quoted += "\\n";
+        } else if (character == '\t') {
+            quoted += "\\t";
+        } else if (character == '\r') {
+            quoted += "\\r";
+        } else {
+            quoted.push_back(character);
+        }
+    }
+    quoted.push_back('"');
+    return quoted;
+}
+
 std::size_t count_selector_matches(
     const std::vector<external_source_info> &sources,
     source_selector_kind kind,
@@ -214,13 +234,13 @@ std::string format_source_candidate(const external_source_info &source) {
     std::ostringstream out;
     out << external_source_backend_name(source.backend);
     if (!source.app_name.empty()) {
-        out << " app=" << source.app_name;
+        out << " app=" << quote_value(source.app_name);
     }
     if (!source.server_name.empty()) {
-        out << " name=" << source.server_name;
+        out << " name=" << quote_value(source.server_name);
     }
     if (!source.stable_id.empty()) {
-        out << " id=" << source.stable_id;
+        out << " id=" << quote_value(source.stable_id);
     }
     out << " index=" << source.platform_index;
     return out.str();
@@ -247,11 +267,11 @@ std::string format_external_source_list_line(
     std::ostringstream out;
     out << format_source_candidate(source);
     if (!source.server_name.empty()) {
-        out << " selector=name:" << source.server_name;
+        out << " selector=" << quote_value("name:" + source.server_name);
         out << " name_ambiguous=" << (count_selector_matches(sources, source_selector_kind::name, source.server_name) > 1 ? "yes" : "no");
     }
     if (!source.app_name.empty() && backend_supports_selector(source.backend, source_selector_kind::app)) {
-        out << " selector=app:" << source.app_name;
+        out << " selector=" << quote_value("app:" + source.app_name);
         out << " app_ambiguous=" << (count_selector_matches(sources, source_selector_kind::app, source.app_name) > 1 ? "yes" : "no");
     }
     return out.str();

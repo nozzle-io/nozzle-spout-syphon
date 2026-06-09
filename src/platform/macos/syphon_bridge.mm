@@ -77,17 +77,38 @@ std::vector<external_source_info> enumerate_syphon_sources() {
     return sources;
 }
 
+std::chrono::steady_clock::time_point make_source_selection_deadline(const app_config &config) {
+    const std::uint64_t timeout_ms = config.timeout_ms == 0 ? 1000 : config.timeout_ms;
+    return std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+}
+
+bool source_selection_deadline_expired(std::chrono::steady_clock::time_point deadline) {
+    return deadline <= std::chrono::steady_clock::now();
+}
+
+std::chrono::milliseconds source_selection_idle_sleep(const app_config &config) {
+    return std::chrono::milliseconds(config.idle_sleep_ms == 0 ? 1 : config.idle_sleep_ms);
+}
+
 bridge_run_result run_syphon_to_nozzle(const app_config &config, id<MTLDevice> device) {
     bridge_run_result result{};
-    const std::vector<external_source_info> sources = enumerate_syphon_sources();
-    const source_selection_result selection = select_external_source(
-        external_source_backend::syphon,
-        config.source_name,
-        sources);
-    if (selection.status != source_selection_status::selected) {
-        result.error_message = format_source_selection_error(selection, sources);
-        result.exit_code = 8;
-        return result;
+    std::vector<external_source_info> sources{};
+    source_selection_result selection{};
+    const auto selection_deadline = make_source_selection_deadline(config);
+    for (;;) {
+        sources = enumerate_syphon_sources();
+        selection = select_external_source(external_source_backend::syphon, config.source_name, sources);
+        if (selection.status == source_selection_status::selected) {
+            break;
+        }
+        if (selection.status == source_selection_status::ambiguous ||
+            selection.status == source_selection_status::unsupported_selector ||
+            source_selection_deadline_expired(selection_deadline)) {
+            result.error_message = format_source_selection_error(selection, sources);
+            result.exit_code = 8;
+            return result;
+        }
+        std::this_thread::sleep_for(source_selection_idle_sleep(config));
     }
 
     NSArray<NSDictionary<NSString *, id<NSCoding>> *> *servers =

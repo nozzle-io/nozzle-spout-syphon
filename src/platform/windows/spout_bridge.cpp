@@ -115,15 +115,23 @@ std::vector<external_source_info> enumerate_spout_sources() {
 
 bridge_run_result run_spout_to_nozzle(const app_config &config) {
     bridge_run_result result{};
-    const std::vector<external_source_info> sources = enumerate_spout_sources();
-    const source_selection_result selection = select_external_source(
-        external_source_backend::spout,
-        config.source_name,
-        sources);
-    if (selection.status != source_selection_status::selected) {
-        result.error_message = format_source_selection_error(selection, sources);
-        result.exit_code = 8;
-        return result;
+    std::vector<external_source_info> sources{};
+    source_selection_result selection{};
+    const auto source_selection_deadline = make_deadline(config);
+    for (;;) {
+        sources = enumerate_spout_sources();
+        selection = select_external_source(external_source_backend::spout, config.source_name, sources);
+        if (selection.status == source_selection_status::selected) {
+            break;
+        }
+        if (selection.status == source_selection_status::ambiguous ||
+            selection.status == source_selection_status::unsupported_selector ||
+            deadline_expired(source_selection_deadline)) {
+            result.error_message = format_source_selection_error(selection, sources);
+            result.exit_code = 8;
+            return result;
+        }
+        std::this_thread::sleep_for(idle_sleep(config));
     }
     const std::string selected_sender_name = sources[selection.selected_index].server_name;
 

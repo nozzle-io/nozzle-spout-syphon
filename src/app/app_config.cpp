@@ -95,6 +95,7 @@ std::string usage_text(const char *program_name) {
         << "\n"
         << "Source selectors for external-to-nozzle: default, name:<exact-name>, app:<exact-app>, or a bare exact name.\n"
         << "Syphon supports name: and app:. Spout supports name: only; app: is rejected because Spout sender enumeration exposes no app field here.\n"
+        << "With --run, missing external sources are polled until --timeout-ms; selected sources are sticky and are not auto-switched.\n"
         << "macOS runs the Syphon Metal bridge. Windows runs the SpoutDX D3D11 bridge, with runtime support still gated on host smoke evidence.\n";
     return out.str();
 }

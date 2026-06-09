@@ -225,8 +225,8 @@ void test_source_selection_rejects_duplicate_names_and_apps() {
     require(result.matching_indices.size() == 2, "duplicate app reports both matches");
 
     const std::string list_line = nozzle_spout_syphon::format_external_source_list_line(sources.back(), sources);
-    require(list_line.find("selector=name:other_server") != std::string::npos, "list line contains name selector");
-    require(list_line.find("selector=app:alpha_app") != std::string::npos, "list line contains app selector");
+    require(list_line.find("selector=\"name:other_server\"") != std::string::npos, "list line contains name selector");
+    require(list_line.find("selector=\"app:alpha_app\"") != std::string::npos, "list line contains app selector");
     require(list_line.find("app_ambiguous=yes") != std::string::npos, "list line marks duplicate app ambiguity");
 }
 
@@ -252,6 +252,29 @@ void test_default_selection_is_sorted_and_spout_app_is_unsupported() {
     require(result.status == nozzle_spout_syphon::source_selection_status::unsupported_selector, "Spout app selector is unsupported");
 }
 
+void test_list_output_quotes_selector_evidence() {
+    std::vector<nozzle_spout_syphon::external_source_info> sources{};
+    nozzle_spout_syphon::external_source_info source{};
+    source.backend = nozzle_spout_syphon::external_source_backend::syphon;
+    source.display_name = "presentation only";
+    source.server_name = "Main Output=1";
+    source.app_name = "Some \"Host\" App";
+    source.platform_index = 7;
+    sources.push_back(source);
+
+    const std::string list_line = nozzle_spout_syphon::format_external_source_list_line(source, sources);
+    require(list_line.find("name=\"Main Output=1\"") != std::string::npos, "list quotes names with spaces and equals");
+    require(list_line.find("app=\"Some \\\"Host\\\" App\"") != std::string::npos, "list escapes quotes in app names");
+    require(list_line.find("selector=\"name:Main Output=1\"") != std::string::npos, "list quotes name selector");
+    require(list_line.find("selector=\"app:Some \\\"Host\\\" App\"") != std::string::npos, "list quotes app selector");
+
+    nozzle_spout_syphon::source_selection_result result = nozzle_spout_syphon::select_external_source(
+        nozzle_spout_syphon::external_source_backend::syphon,
+        "name:presentation only",
+        sources);
+    require(result.status == nozzle_spout_syphon::source_selection_status::not_found, "display_name is not a selector");
+}
+
 } // namespace
 
 int main() {
@@ -264,5 +287,6 @@ int main() {
     test_source_selection_exact_matches_and_missing();
     test_source_selection_rejects_duplicate_names_and_apps();
     test_default_selection_is_sorted_and_spout_app_is_unsupported();
+    test_list_output_quotes_selector_evidence();
     return 0;
 }

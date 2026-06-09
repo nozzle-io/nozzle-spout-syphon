@@ -45,17 +45,24 @@ External source selection is explicit and deterministic:
 - `--source value` is preserved for compatibility and is treated as `name:value`.
 - Missing sources fail with a clear selector error.
 - Duplicate `name:` or `app:` matches fail as ambiguous and list the matching candidates. The bridge does not silently choose the first duplicate.
+- With `--run`, missing `external-to-nozzle` sources are polled until `--timeout-ms` before failing. Ambiguous or unsupported selectors fail immediately.
+- Once a source has been selected, the bridge keeps that selected target sticky. It does not re-run `default` selection every frame and does not silently switch to a different source when the visible source list changes.
+- If the selected source disappears while running, the current bridge waits on the selected target path until the existing frame/no-frame timeout logic fails; it does not auto-select another source.
 
-`--list` prints selector evidence. Example Syphon output:
+Bare Syphon app-name matching from older builds is no longer claimed. Use `app:<exact-app>` for app-name selection.
+
+`--list` prints quoted selector evidence. Values are double-quoted with `"` and `\` escaped; pass the selector value to the shell as one argument, for example `--source "name:Main Output"`.
+
+Example Syphon output:
 
 ```text
-Syphon app=Resolume name=Main index=0 selector=name:Main name_ambiguous=no selector=app:Resolume app_ambiguous=no
+Syphon app="Resolume Arena" name="Main Output" index=0 selector="name:Main Output" name_ambiguous=no selector="app:Resolume Arena" app_ambiguous=no
 ```
 
 Example Spout output:
 
 ```text
-Spout name=SpoutSender index=0 selector=name:SpoutSender name_ambiguous=no
+Spout name="Spout Sender" index=0 selector="name:Spout Sender" name_ambiguous=no
 ```
 
 If two Syphon servers share the same server name, `--list` marks `name_ambiguous=yes`; selecting `name:<that-name>` then fails instead of hiding the ambiguity. If two Syphon servers share an app name, `app_ambiguous=yes` is reported and `app:<that-app>` fails.

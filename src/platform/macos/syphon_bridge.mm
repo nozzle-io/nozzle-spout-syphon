@@ -1,4 +1,5 @@
 #include <app/status_report.hpp>
+#include <app/source_selection.hpp>
 
 #include <nozzle/backends/metal.hpp>
 #include <nozzle/receiver.hpp>
@@ -11,6 +12,7 @@
 #include <chrono>
 #include <sstream>
 #include <thread>
+#include <vector>
 
 namespace nozzle_spout_syphon {
 
@@ -55,35 +57,49 @@ nozzle::texture_format format_from_mtl_texture(id<MTLTexture> texture) {
     }
 }
 
-NSDictionary<NSString *, id<NSCoding>> *find_syphon_server(const std::string &name) {
+std::vector<external_source_info> enumerate_syphon_sources() {
+    std::vector<external_source_info> sources{};
     NSArray<NSDictionary<NSString *, id<NSCoding>> *> *servers =
         [[SyphonServerDirectory sharedDirectory] servers];
-    if ([servers count] == 0) {
-        return nil;
-    }
-    if (name.empty() || name == "default") {
-        return [servers objectAtIndex:0];
-    }
-    NSString *wanted = to_ns_string(name);
-    for (NSDictionary<NSString *, id<NSCoding>> *server in servers) {
+    sources.reserve(static_cast<std::size_t>([servers count]));
+    for (NSUInteger index = 0; index < [servers count]; ++index) {
+        NSDictionary<NSString *, id<NSCoding>> *server = [servers objectAtIndex:index];
         NSString *server_name = (NSString *)[server objectForKey:SyphonServerDescriptionNameKey];
         NSString *app_name = (NSString *)[server objectForKey:SyphonServerDescriptionAppNameKey];
-        if ((server_name && [server_name isEqualToString:wanted]) ||
-            (app_name && [app_name isEqualToString:wanted])) {
-            return server;
-        }
+        external_source_info source{};
+        source.backend = external_source_backend::syphon;
+        source.server_name = to_std_string(server_name);
+        source.app_name = to_std_string(app_name);
+        source.display_name = source.server_name.empty() ? source.app_name : source.server_name;
+        source.platform_index = static_cast<std::size_t>(index);
+        sources.push_back(std::move(source));
     }
-    return nil;
+    return sources;
 }
 
 bridge_run_result run_syphon_to_nozzle(const app_config &config, id<MTLDevice> device) {
     bridge_run_result result{};
-    NSDictionary<NSString *, id<NSCoding>> *server_description = find_syphon_server(config.source_name);
-    if (!server_description) {
-        result.error_message = "Syphon source not found: " + config.source_name;
+    const std::vector<external_source_info> sources = enumerate_syphon_sources();
+    const source_selection_result selection = select_external_source(
+        external_source_backend::syphon,
+        config.source_name,
+        sources);
+    if (selection.status != source_selection_status::selected) {
+        result.error_message = format_source_selection_error(selection, sources);
         result.exit_code = 8;
         return result;
     }
+
+    NSArray<NSDictionary<NSString *, id<NSCoding>> *> *servers =
+        [[SyphonServerDirectory sharedDirectory] servers];
+    const external_source_info &selected_source = sources[selection.selected_index];
+    if (selected_source.platform_index >= static_cast<std::size_t>([servers count])) {
+        result.error_message = "selected Syphon source disappeared before client creation: " + format_source_candidate(selected_source);
+        result.exit_code = 8;
+        return result;
+    }
+    NSDictionary<NSString *, id<NSCoding>> *server_description =
+        [servers objectAtIndex:static_cast<NSUInteger>(selected_source.platform_index)];
 
     SyphonMetalClient *client = [[SyphonMetalClient alloc]
         initWithServerDescription:server_description
@@ -298,22 +314,9 @@ bridge_status query_platform_bridge_status(const app_config &config) {
 std::vector<std::string> list_platform_sources() {
     std::vector<std::string> sources{};
     @autoreleasepool {
-        NSArray<NSDictionary<NSString *, id<NSCoding>> *> *servers =
-            [[SyphonServerDirectory sharedDirectory] servers];
-        for (NSDictionary<NSString *, id<NSCoding>> *server in servers) {
-            NSString *server_name = (NSString *)[server objectForKey:SyphonServerDescriptionNameKey];
-            NSString *app_name = (NSString *)[server objectForKey:SyphonServerDescriptionAppNameKey];
-            std::ostringstream line;
-            line << "Syphon";
-            const std::string app = to_std_string(app_name);
-            const std::string name = to_std_string(server_name);
-            if (!app.empty()) {
-                line << " app=" << app;
-            }
-            if (!name.empty()) {
-                line << " name=" << name;
-            }
-            sources.push_back(line.str());
+        const std::vector<external_source_info> syphon_sources = enumerate_syphon_sources();
+        for (const external_source_info &source : syphon_sources) {
+            sources.push_back(format_external_source_list_line(source, syphon_sources));
         }
     }
     return sources;

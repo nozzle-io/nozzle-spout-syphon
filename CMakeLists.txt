@@ -59,6 +59,7 @@ add_subdirectory(nozzle)
 
 set(NOZZLE_SPOUT_SYPHON_APP_SOURCES
     src/app/app_config.cpp
+    src/app/source_selection.cpp
     src/app/status_report.cpp
 )
 

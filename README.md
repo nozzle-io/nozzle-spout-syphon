@@ -27,7 +27,7 @@ nozzle-to-external  # nozzle sender -> Syphon/Spout sender
 Common CLI controls:
 
 - `--mode external-to-nozzle|nozzle-to-external`
-- `--source NAME`
+- `--source SELECTOR`
 - `--target NAME`
 - `--publish on|off` (`--publish off` is diagnostics-only and is rejected with `--run`)
 - `--width N --height N` for diagnostics
@@ -37,7 +37,28 @@ Common CLI controls:
 - `--timeout-ms N`
 - `--idle-sleep-ms N`
 
-Source selection is deliberately literal. `--source default` means the first visible platform source. A named Syphon source must exactly match the Syphon server name or app name reported by `--list`; a named Spout source is passed to SpoutDX as the receiver name. If two hosts publish confusing duplicate names, this tool does not claim deterministic disambiguation yet—rename the sender or capture manual smoke evidence for the exact host setup.
+External source selection is explicit and deterministic:
+
+- `--source default` is a convenience selector. It picks the first visible source after deterministic sorting by displayed source fields. This is useful for quick local smoke, not a production-grade stable identity.
+- `--source name:<exact-name>` selects an exact Syphon server name or Spout sender name.
+- `--source app:<exact-app>` selects an exact Syphon app name. Spout currently exposes sender names only in this bridge, so `app:` is rejected on Windows instead of guessing.
+- `--source value` is preserved for compatibility and is treated as `name:value`.
+- Missing sources fail with a clear selector error.
+- Duplicate `name:` or `app:` matches fail as ambiguous and list the matching candidates. The bridge does not silently choose the first duplicate.
+
+`--list` prints selector evidence. Example Syphon output:
+
+```text
+Syphon app=Resolume name=Main index=0 selector=name:Main name_ambiguous=no selector=app:Resolume app_ambiguous=no
+```
+
+Example Spout output:
+
+```text
+Spout name=SpoutSender index=0 selector=name:SpoutSender name_ambiguous=no
+```
+
+If two Syphon servers share the same server name, `--list` marks `name_ambiguous=yes`; selecting `name:<that-name>` then fails instead of hiding the ambiguity. If two Syphon servers share an app name, `app_ambiguous=yes` is reported and `app:<that-app>` fails.
 
 ## Build
 
@@ -95,7 +116,7 @@ Syphon sender to nozzle sender. The named Syphon source must already be visible;
 ```sh
 ./build/nozzle-syphon.app/Contents/MacOS/nozzle-syphon \
   --mode external-to-nozzle \
-  --source syphon_sender_name \
+  --source name:syphon_sender_name \
   --target nozzle_bridge \
   --run
 ```

@@ -1,9 +1,11 @@
 #include <app/app_config.hpp>
+#include <app/source_selection.hpp>
 #include <app/status_report.hpp>
 
 #include <cstdio>
 #include <cstdlib>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -116,6 +118,140 @@ void test_invalid_arguments_fail_without_fallback_guessing() {
     require(parsed.error.find("unsupported mode") != std::string::npos, "bad mode reports parse error");
 }
 
+std::vector<nozzle_spout_syphon::external_source_info> make_syphon_selection_fixture() {
+    std::vector<nozzle_spout_syphon::external_source_info> sources{};
+    nozzle_spout_syphon::external_source_info beta{};
+    beta.backend = nozzle_spout_syphon::external_source_backend::syphon;
+    beta.display_name = "beta_server";
+    beta.server_name = "beta_server";
+    beta.app_name = "beta_app";
+    beta.platform_index = 0;
+    sources.push_back(beta);
+
+    nozzle_spout_syphon::external_source_info alpha{};
+    alpha.backend = nozzle_spout_syphon::external_source_backend::syphon;
+    alpha.display_name = "alpha_server";
+    alpha.server_name = "alpha_server";
+    alpha.app_name = "alpha_app";
+    alpha.platform_index = 1;
+    sources.push_back(alpha);
+    return sources;
+}
+
+void test_source_selector_parsing_is_explicit() {
+    nozzle_spout_syphon::source_selector selector = nozzle_spout_syphon::parse_source_selector("");
+    require(selector.kind == nozzle_spout_syphon::source_selector_kind::default_source, "empty selector maps to default");
+    selector = nozzle_spout_syphon::parse_source_selector("default");
+    require(selector.kind == nozzle_spout_syphon::source_selector_kind::default_source, "default selector parses");
+    selector = nozzle_spout_syphon::parse_source_selector("name:camera");
+    require(selector.kind == nozzle_spout_syphon::source_selector_kind::name, "name selector parses");
+    require(selector.value == "camera", "name selector stores value");
+    selector = nozzle_spout_syphon::parse_source_selector("app:host");
+    require(selector.kind == nozzle_spout_syphon::source_selector_kind::app, "app selector parses");
+    require(selector.value == "host", "app selector stores value");
+    selector = nozzle_spout_syphon::parse_source_selector("literal");
+    require(selector.kind == nozzle_spout_syphon::source_selector_kind::name, "bare selector maps to name");
+    require(selector.value == "literal", "bare selector stores literal value");
+    selector = nozzle_spout_syphon::parse_source_selector("id:not-supported");
+    require(selector.unsupported, "unknown prefixed selector is unsupported");
+    selector = nozzle_spout_syphon::parse_source_selector("name:");
+    require(selector.unsupported, "empty name selector is unsupported");
+    selector = nozzle_spout_syphon::parse_source_selector("app:");
+    require(selector.unsupported, "empty app selector is unsupported");
+
+    const std::vector<nozzle_spout_syphon::external_source_info> sources = make_syphon_selection_fixture();
+    const nozzle_spout_syphon::source_selection_result result = nozzle_spout_syphon::select_external_source(
+        nozzle_spout_syphon::external_source_backend::syphon,
+        "id:not-supported",
+        sources);
+    require(result.status == nozzle_spout_syphon::source_selection_status::unsupported_selector, "unknown prefixed selector is rejected by selection");
+}
+
+void test_source_selection_exact_matches_and_missing() {
+    const std::vector<nozzle_spout_syphon::external_source_info> sources = make_syphon_selection_fixture();
+    nozzle_spout_syphon::source_selection_result result = nozzle_spout_syphon::select_external_source(
+        nozzle_spout_syphon::external_source_backend::syphon,
+        "name:alpha_server",
+        sources);
+    require(result.status == nozzle_spout_syphon::source_selection_status::selected, "name selector selects exactly one source");
+    require(sources[result.selected_index].server_name == "alpha_server", "name selector picked alpha");
+
+    result = nozzle_spout_syphon::select_external_source(
+        nozzle_spout_syphon::external_source_backend::syphon,
+        "app:beta_app",
+        sources);
+    require(result.status == nozzle_spout_syphon::source_selection_status::selected, "app selector selects exactly one source");
+    require(sources[result.selected_index].app_name == "beta_app", "app selector picked beta");
+
+    result = nozzle_spout_syphon::select_external_source(
+        nozzle_spout_syphon::external_source_backend::syphon,
+        "name:missing",
+        sources);
+    require(result.status == nozzle_spout_syphon::source_selection_status::not_found, "missing source is reported");
+
+    const std::vector<nozzle_spout_syphon::external_source_info> empty_sources{};
+    result = nozzle_spout_syphon::select_external_source(
+        nozzle_spout_syphon::external_source_backend::syphon,
+        "default",
+        empty_sources);
+    require(result.status == nozzle_spout_syphon::source_selection_status::not_found, "default with no visible sources is not found");
+}
+
+void test_source_selection_rejects_duplicate_names_and_apps() {
+    std::vector<nozzle_spout_syphon::external_source_info> sources = make_syphon_selection_fixture();
+    nozzle_spout_syphon::external_source_info duplicate_name = sources.front();
+    duplicate_name.app_name = "other_app";
+    duplicate_name.platform_index = 2;
+    sources.push_back(duplicate_name);
+
+    nozzle_spout_syphon::source_selection_result result = nozzle_spout_syphon::select_external_source(
+        nozzle_spout_syphon::external_source_backend::syphon,
+        "name:beta_server",
+        sources);
+    require(result.status == nozzle_spout_syphon::source_selection_status::ambiguous, "duplicate name is ambiguous");
+    require(result.matching_indices.size() == 2, "duplicate name reports both matches");
+
+    sources = make_syphon_selection_fixture();
+    nozzle_spout_syphon::external_source_info duplicate_app = sources.back();
+    duplicate_app.server_name = "other_server";
+    duplicate_app.display_name = "other_server";
+    duplicate_app.platform_index = 2;
+    sources.push_back(duplicate_app);
+    result = nozzle_spout_syphon::select_external_source(
+        nozzle_spout_syphon::external_source_backend::syphon,
+        "app:alpha_app",
+        sources);
+    require(result.status == nozzle_spout_syphon::source_selection_status::ambiguous, "duplicate app is ambiguous");
+    require(result.matching_indices.size() == 2, "duplicate app reports both matches");
+
+    const std::string list_line = nozzle_spout_syphon::format_external_source_list_line(sources.back(), sources);
+    require(list_line.find("selector=name:other_server") != std::string::npos, "list line contains name selector");
+    require(list_line.find("selector=app:alpha_app") != std::string::npos, "list line contains app selector");
+    require(list_line.find("app_ambiguous=yes") != std::string::npos, "list line marks duplicate app ambiguity");
+}
+
+void test_default_selection_is_sorted_and_spout_app_is_unsupported() {
+    const std::vector<nozzle_spout_syphon::external_source_info> sources = make_syphon_selection_fixture();
+    nozzle_spout_syphon::source_selection_result result = nozzle_spout_syphon::select_external_source(
+        nozzle_spout_syphon::external_source_backend::syphon,
+        "default",
+        sources);
+    require(result.status == nozzle_spout_syphon::source_selection_status::selected, "default selects when sources exist");
+    require(sources[result.selected_index].server_name == "alpha_server", "default picks sorted first source");
+
+    std::vector<nozzle_spout_syphon::external_source_info> spout_sources{};
+    nozzle_spout_syphon::external_source_info spout{};
+    spout.backend = nozzle_spout_syphon::external_source_backend::spout;
+    spout.display_name = "spout_sender";
+    spout.server_name = "spout_sender";
+    spout_sources.push_back(spout);
+    result = nozzle_spout_syphon::select_external_source(
+        nozzle_spout_syphon::external_source_backend::spout,
+        "app:host",
+        spout_sources);
+    require(result.status == nozzle_spout_syphon::source_selection_status::unsupported_selector, "Spout app selector is unsupported");
+}
+
 } // namespace
 
 int main() {
@@ -124,5 +260,9 @@ int main() {
     test_argument_parser_fills_product_controls();
     test_status_report_is_honest_about_platform_runtime_state();
     test_invalid_arguments_fail_without_fallback_guessing();
+    test_source_selector_parsing_is_explicit();
+    test_source_selection_exact_matches_and_missing();
+    test_source_selection_rejects_duplicate_names_and_apps();
+    test_default_selection_is_sorted_and_spout_app_is_unsupported();
     return 0;
 }

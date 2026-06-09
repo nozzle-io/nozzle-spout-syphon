@@ -1,4 +1,5 @@
 #include <app/status_report.hpp>
+#include <app/source_selection.hpp>
 
 #include <nozzle/backends/d3d11.hpp>
 #include <nozzle/receiver.hpp>
@@ -64,13 +65,6 @@ std::chrono::milliseconds idle_sleep(const app_config &config) {
     return std::chrono::milliseconds(config.idle_sleep_ms == 0 ? 1 : config.idle_sleep_ms);
 }
 
-const char *configured_receiver_name(const std::string &name) {
-    if (name.empty() || name == "default") {
-        return nullptr;
-    }
-    return name.c_str();
-}
-
 nozzle::texture_format format_from_dxgi(DXGI_FORMAT format) {
     switch (format) {
         case DXGI_FORMAT_R8_UNORM: return nozzle::texture_format::r8_unorm;
@@ -103,11 +97,38 @@ std::string spout_status_message() {
     return out.str();
 }
 
+std::vector<external_source_info> enumerate_spout_sources() {
+    spoutDX spout{};
+    std::vector<std::string> sender_names = spout.GetSenderList();
+    std::vector<external_source_info> sources{};
+    sources.reserve(sender_names.size());
+    for (std::size_t index = 0; index < sender_names.size(); ++index) {
+        external_source_info source{};
+        source.backend = external_source_backend::spout;
+        source.display_name = sender_names[index];
+        source.server_name = sender_names[index];
+        source.platform_index = index;
+        sources.push_back(std::move(source));
+    }
+    return sources;
+}
+
 bridge_run_result run_spout_to_nozzle(const app_config &config) {
     bridge_run_result result{};
+    const std::vector<external_source_info> sources = enumerate_spout_sources();
+    const source_selection_result selection = select_external_source(
+        external_source_backend::spout,
+        config.source_name,
+        sources);
+    if (selection.status != source_selection_status::selected) {
+        result.error_message = format_source_selection_error(selection, sources);
+        result.exit_code = 8;
+        return result;
+    }
+    const std::string selected_sender_name = sources[selection.selected_index].server_name;
 
     spoutDX receiver{};
-    receiver.SetReceiverName(configured_receiver_name(config.source_name));
+    receiver.SetReceiverName(selected_sender_name.c_str());
     if (!receiver.OpenDirectX11() || !receiver.GetDX11Device()) {
         result.error_message = "failed to initialize SpoutDX D3D11 receiver device";
         result.exit_code = 11;
@@ -121,7 +142,7 @@ bridge_run_result run_spout_to_nozzle(const app_config &config) {
     while (config.frame_limit == 0 || result.frames_processed < config.frame_limit) {
         if (!receiver.ReceiveTexture()) {
             if (deadline_expired(deadline)) {
-                result.error_message = "Spout sender not found or produced no D3D11 texture before timeout: " + config.source_name;
+                result.error_message = "Spout sender not found or produced no D3D11 texture before timeout: " + selected_sender_name;
                 result.exit_code = 8;
                 return result;
             }
@@ -131,7 +152,7 @@ bridge_run_result run_spout_to_nozzle(const app_config &config) {
 
         if (!receiver.IsFrameNew()) {
             if (deadline_expired(deadline)) {
-                result.error_message = "Spout sender connected but produced no new frame before timeout: " + config.source_name;
+                result.error_message = "Spout sender connected but produced no new frame before timeout: " + selected_sender_name;
                 result.exit_code = 8;
                 return result;
             }
@@ -303,8 +324,13 @@ bridge_status query_platform_bridge_status(const app_config &config) {
 }
 
 std::vector<std::string> list_platform_sources() {
-    spoutDX spout{};
-    return spout.GetSenderList();
+    const std::vector<external_source_info> spout_sources = enumerate_spout_sources();
+    std::vector<std::string> sources{};
+    sources.reserve(spout_sources.size());
+    for (const external_source_info &source : spout_sources) {
+        sources.push_back(format_external_source_list_line(source, spout_sources));
+    }
+    return sources;
 }
 
 bridge_run_result run_platform_bridge(const app_config &config) {

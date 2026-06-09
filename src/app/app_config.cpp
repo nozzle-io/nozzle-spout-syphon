@@ -81,7 +81,7 @@ std::string usage_text(const char *program_name) {
         << "\n"
         << "Options:\n"
         << "  --mode external-to-nozzle|nozzle-to-external\n"
-        << "  --source NAME        Syphon/Spout or nozzle sender name to read\n"
+        << "  --source SELECTOR    Syphon/Spout or nozzle sender selector to read\n"
         << "  --target NAME        sender name to publish\n"
         << "  --publish on|off     requested publish state\n"
         << "  --width N            requested width diagnostic, 0 means unknown\n"
@@ -93,6 +93,8 @@ std::string usage_text(const char *program_name) {
         << "  --idle-sleep-ms N    polling sleep while waiting for frames\n"
         << "  --help               print this text\n"
         << "\n"
+        << "Source selectors for external-to-nozzle: default, name:<exact-name>, app:<exact-app>, or a bare exact name.\n"
+        << "Syphon supports name: and app:. Spout supports name: only; app: is rejected because Spout sender enumeration exposes no app field here.\n"
         << "macOS runs the Syphon Metal bridge. Windows runs the SpoutDX D3D11 bridge, with runtime support still gated on host smoke evidence.\n";
     return out.str();
 }

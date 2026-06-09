@@ -57,10 +57,10 @@ nozzle::texture_format format_from_mtl_texture(id<MTLTexture> texture) {
     }
 }
 
-std::vector<external_source_info> enumerate_syphon_sources() {
+std::vector<external_source_info> enumerate_syphon_sources_from_servers(
+    NSArray<NSDictionary<NSString *, id<NSCoding>> *> *servers
+) {
     std::vector<external_source_info> sources{};
-    NSArray<NSDictionary<NSString *, id<NSCoding>> *> *servers =
-        [[SyphonServerDirectory sharedDirectory] servers];
     sources.reserve(static_cast<std::size_t>([servers count]));
     for (NSUInteger index = 0; index < [servers count]; ++index) {
         NSDictionary<NSString *, id<NSCoding>> *server = [servers objectAtIndex:index];
@@ -75,6 +75,10 @@ std::vector<external_source_info> enumerate_syphon_sources() {
         sources.push_back(std::move(source));
     }
     return sources;
+}
+
+std::vector<external_source_info> enumerate_syphon_sources() {
+    return enumerate_syphon_sources_from_servers([[SyphonServerDirectory sharedDirectory] servers]);
 }
 
 std::chrono::steady_clock::time_point make_source_selection_deadline(const app_config &config) {
@@ -94,11 +98,23 @@ bridge_run_result run_syphon_to_nozzle(const app_config &config, id<MTLDevice> d
     bridge_run_result result{};
     std::vector<external_source_info> sources{};
     source_selection_result selection{};
+    external_source_info selected_source{};
+    NSDictionary<NSString *, id<NSCoding>> *server_description = nil;
     const auto selection_deadline = make_source_selection_deadline(config);
     for (;;) {
-        sources = enumerate_syphon_sources();
+        NSArray<NSDictionary<NSString *, id<NSCoding>> *> *servers =
+            [[SyphonServerDirectory sharedDirectory] servers];
+        sources = enumerate_syphon_sources_from_servers(servers);
         selection = select_external_source(external_source_backend::syphon, config.source_name, sources);
         if (selection.status == source_selection_status::selected) {
+            selected_source = sources[selection.selected_index];
+            if (selected_source.platform_index >= static_cast<std::size_t>([servers count])) {
+                result.error_message = "selected Syphon source disappeared before client creation: " + format_source_candidate(selected_source);
+                result.exit_code = 8;
+                return result;
+            }
+            server_description = [servers objectAtIndex:static_cast<NSUInteger>(selected_source.platform_index)];
+            [server_description retain];
             break;
         }
         if (selection.status == source_selection_status::ambiguous ||
@@ -111,22 +127,12 @@ bridge_run_result run_syphon_to_nozzle(const app_config &config, id<MTLDevice> d
         std::this_thread::sleep_for(source_selection_idle_sleep(config));
     }
 
-    NSArray<NSDictionary<NSString *, id<NSCoding>> *> *servers =
-        [[SyphonServerDirectory sharedDirectory] servers];
-    const external_source_info &selected_source = sources[selection.selected_index];
-    if (selected_source.platform_index >= static_cast<std::size_t>([servers count])) {
-        result.error_message = "selected Syphon source disappeared before client creation: " + format_source_candidate(selected_source);
-        result.exit_code = 8;
-        return result;
-    }
-    NSDictionary<NSString *, id<NSCoding>> *server_description =
-        [servers objectAtIndex:static_cast<NSUInteger>(selected_source.platform_index)];
-
     SyphonMetalClient *client = [[SyphonMetalClient alloc]
         initWithServerDescription:server_description
                            device:device
                           options:nil
                   newFrameHandler:nil];
+    [server_description release];
     if (!client || ![client isValid]) {
         if (client) {
             [client release];
@@ -150,17 +156,32 @@ bridge_run_result run_syphon_to_nozzle(const app_config &config, id<MTLDevice> d
         return result;
     }
     nozzle::sender sender = std::move(sender_result.value());
+    auto frame_deadline = make_source_selection_deadline(config);
 
     while (config.frame_limit == 0 || result.frames_processed < config.frame_limit) {
         @autoreleasepool {
             if (![client hasNewFrame]) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(config.idle_sleep_ms));
+                if (source_selection_deadline_expired(frame_deadline)) {
+                    result.error_message = "selected Syphon source produced no new frame before timeout: " + format_source_candidate(selected_source);
+                    result.exit_code = 8;
+                    [client stop];
+                    [client release];
+                    return result;
+                }
+                std::this_thread::sleep_for(source_selection_idle_sleep(config));
                 continue;
             }
 
             id<MTLTexture> texture = [client newFrameImage];
             if (!texture) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(config.idle_sleep_ms));
+                if (source_selection_deadline_expired(frame_deadline)) {
+                    result.error_message = "selected Syphon source produced no Metal texture before timeout: " + format_source_candidate(selected_source);
+                    result.exit_code = 12;
+                    [client stop];
+                    [client release];
+                    return result;
+                }
+                std::this_thread::sleep_for(source_selection_idle_sleep(config));
                 continue;
             }
 
@@ -187,6 +208,7 @@ bridge_run_result run_syphon_to_nozzle(const app_config &config, id<MTLDevice> d
                 [client release];
                 return result;
             }
+            frame_deadline = make_source_selection_deadline(config);
             result.frames_processed = result.frames_processed + 1;
         }
     }
@@ -242,7 +264,7 @@ bridge_run_result run_nozzle_to_syphon(const app_config &config, id<MTLDevice> d
             if (!frame_result.ok()) {
                 if (frame_result.error().code == nozzle::ErrorCode::Timeout ||
                     frame_result.error().code == nozzle::ErrorCode::SenderNotFound) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(config.idle_sleep_ms));
+                    std::this_thread::sleep_for(source_selection_idle_sleep(config));
                     continue;
                 }
                 result.error_message = "failed to acquire nozzle frame: " + frame_result.error().message;

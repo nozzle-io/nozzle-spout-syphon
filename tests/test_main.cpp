@@ -231,7 +231,9 @@ void test_source_selection_rejects_duplicate_names_and_apps() {
 }
 
 void test_default_selection_is_sorted_and_spout_app_is_unsupported() {
-    const std::vector<nozzle_spout_syphon::external_source_info> sources = make_syphon_selection_fixture();
+    std::vector<nozzle_spout_syphon::external_source_info> sources = make_syphon_selection_fixture();
+    sources[0].display_name = "zzz presentation label";
+    sources[1].display_name = "aaa presentation label";
     nozzle_spout_syphon::source_selection_result result = nozzle_spout_syphon::select_external_source(
         nozzle_spout_syphon::external_source_backend::syphon,
         "default",

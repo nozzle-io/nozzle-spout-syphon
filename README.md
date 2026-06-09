@@ -39,7 +39,7 @@ Common CLI controls:
 
 External source selection is explicit and deterministic:
 
-- `--source default` is a convenience selector. It picks the first visible source after deterministic sorting by displayed source fields. This is useful for quick local smoke, not a production-grade stable identity.
+- `--source default` is a convenience selector. It picks the first visible source after deterministic sorting by explicit selector fields, not presentation labels. This is useful for quick local smoke, not a production-grade stable identity.
 - `--source name:<exact-name>` selects an exact Syphon server name or Spout sender name.
 - `--source app:<exact-app>` selects an exact Syphon app name. Spout currently exposes sender names only in this bridge, so `app:` is rejected on Windows instead of guessing.
 - `--source value` is preserved for compatibility and is treated as `name:value`.
@@ -47,7 +47,7 @@ External source selection is explicit and deterministic:
 - Duplicate `name:` or `app:` matches fail as ambiguous and list the matching candidates. The bridge does not silently choose the first duplicate.
 - With `--run`, missing `external-to-nozzle` sources are polled until `--timeout-ms` before failing. Ambiguous or unsupported selectors fail immediately.
 - Once a source has been selected, the bridge keeps that selected target sticky. It does not re-run `default` selection every frame and does not silently switch to a different source when the visible source list changes.
-- If the selected source disappears while running, the current bridge waits on the selected target path until the existing frame/no-frame timeout logic fails; it does not auto-select another source.
+- If the selected source disappears or stops producing frames while running, the current bridge waits on the selected target path until `--timeout-ms` expires, then fails with a selector/source-specific error; it does not auto-select another source.
 
 Bare Syphon app-name matching from older builds is no longer claimed. Use `app:<exact-app>` for app-name selection.
 
@@ -118,7 +118,7 @@ Diagnostics:
 ./build/nozzle-syphon.app/Contents/MacOS/nozzle-syphon --list
 ```
 
-Syphon sender to nozzle sender. The named Syphon source must already be visible; missing-source retry is not claimed yet:
+Syphon sender to nozzle sender. Missing Syphon sources are polled until `--timeout-ms`; ambiguous or unsupported selectors fail immediately:
 
 ```sh
 ./build/nozzle-syphon.app/Contents/MacOS/nozzle-syphon \
@@ -128,7 +128,7 @@ Syphon sender to nozzle sender. The named Syphon source must already be visible;
   --run
 ```
 
-nozzle sender to Syphon sender. The named nozzle source must already exist before startup; missing-source retry is not claimed yet:
+nozzle sender to Syphon sender. The named nozzle source is acquired through nozzle's normal frame timeout path:
 
 ```sh
 ./build/nozzle-syphon.app/Contents/MacOS/nozzle-syphon \

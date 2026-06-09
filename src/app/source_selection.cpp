@@ -12,23 +12,7 @@ bool has_prefix(const std::string &value, const char *prefix) {
     return value.size() >= prefix_text.size() && value.compare(0, prefix_text.size(), prefix_text) == 0;
 }
 
-std::string display_or_name(const external_source_info &source) {
-    if (!source.display_name.empty()) {
-        return source.display_name;
-    }
-    if (!source.server_name.empty()) {
-        return source.server_name;
-    }
-    if (!source.app_name.empty()) {
-        return source.app_name;
-    }
-    return source.stable_id;
-}
-
 bool source_less(const external_source_info &lhs, const external_source_info &rhs) {
-    if (display_or_name(lhs) != display_or_name(rhs)) {
-        return display_or_name(lhs) < display_or_name(rhs);
-    }
     if (lhs.server_name != rhs.server_name) {
         return lhs.server_name < rhs.server_name;
     }

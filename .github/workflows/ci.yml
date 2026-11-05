@@ -18,7 +18,7 @@ concurrency:
 jobs:
   build-macos:
     name: macOS
-    runs-on: macos-14
+    runs-on: macos-15
     outputs:
       package_root: ${{ steps.meta.outputs.package_root }}
       package_name: ${{ steps.meta.outputs.package_name }}
@@ -151,7 +151,7 @@ jobs:
   verify-packages:
     name: Verify downloaded packages
     needs: [build-macos, build-windows]
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
 
@@ -181,7 +181,7 @@ jobs:
     name: Publish release artifacts
     needs: [build-macos, build-windows, verify-packages]
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
-    runs-on: macos-14
+    runs-on: macos-15
     permissions:
       contents: write
     steps:

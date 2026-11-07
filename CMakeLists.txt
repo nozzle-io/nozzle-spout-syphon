@@ -104,6 +104,9 @@ target_compile_definitions(nozzle_spout_syphon_app PUBLIC
 )
 
 add_executable(${NOZZLE_BRIDGE_EXECUTABLE_NAME} src/main.cpp)
+if(MINGW)
+    target_link_options(${NOZZLE_BRIDGE_EXECUTABLE_NAME} PRIVATE -municode)
+endif()
 target_link_libraries(${NOZZLE_BRIDGE_EXECUTABLE_NAME} PRIVATE nozzle_spout_syphon_app)
 target_compile_options(${NOZZLE_BRIDGE_EXECUTABLE_NAME} PRIVATE
     $<$<CXX_COMPILER_ID:Clang,AppleClang>:-Wall -Wextra -Wpedantic -fno-exceptions>

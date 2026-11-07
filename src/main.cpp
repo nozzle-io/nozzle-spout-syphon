@@ -1,3 +1,5 @@
+#include "windows_utf8_argv.hpp"
+
 #include <app/app_config.hpp>
 #include <app/status_report.hpp>
 
@@ -5,7 +7,18 @@
 #include <string>
 #include <vector>
 
+#if defined(_WIN32)
+int wmain(int argc, wchar_t **wide_argv) {
+    windows_utf8_argv converted;
+    if(!converted.assign(argc, wide_argv)) {
+        std::fprintf(stderr, "Invalid UTF-16 command line (Win32 error %lu)\n",
+            static_cast<unsigned long>(GetLastError()));
+        return 2;
+    }
+    char **argv = converted.data();
+#else
 int main(int argc, char **argv) {
+#endif
     nozzle_spout_syphon::parse_result parsed = nozzle_spout_syphon::parse_arguments(argc, argv);
     if (!parsed.ok) {
         std::fprintf(stderr, "%s\n\n%s", parsed.error.c_str(), nozzle_spout_syphon::usage_text(argv[0]).c_str());

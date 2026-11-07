@@ -48,6 +48,7 @@ External source selection is explicit and deterministic:
 - With `--run`, missing `external-to-nozzle` sources are polled until `--timeout-ms` before failing. Ambiguous or unsupported selectors fail immediately.
 - Once a source has been selected, the bridge keeps that selected target sticky. It does not re-run `default` selection every frame and does not silently switch to a different source when the visible source list changes.
 - If the selected source disappears or stops producing frames while running, the current bridge waits on the selected target path until `--timeout-ms` expires, then fails with a selector/source-specific error; it does not auto-select another source.
+- On Windows, a busy nozzle output ring drops the current Spout input frame and keeps the bridge running. That valid input refreshes the source timeout; a dropped output does not count toward `--frames`. Non-timeout publication errors still fail the bridge.
 
 Bare Syphon app-name matching from older builds is no longer claimed. Use `app:<exact-app>` for app-name selection.
 

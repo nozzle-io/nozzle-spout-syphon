@@ -263,6 +263,7 @@ bridge_run_result run_nozzle_to_syphon(const app_config &config, id<MTLDevice> d
             auto frame_result = receiver.acquire_frame(acquire_desc);
             if (!frame_result.ok()) {
                 if (frame_result.error().code == nozzle::ErrorCode::Timeout ||
+                    frame_result.error().code == nozzle::ErrorCode::SenderClosed ||
                     frame_result.error().code == nozzle::ErrorCode::SenderNotFound) {
                     std::this_thread::sleep_for(source_selection_idle_sleep(config));
                     continue;

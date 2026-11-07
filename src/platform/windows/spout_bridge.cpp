@@ -211,6 +211,12 @@ bridge_run_result run_spout_to_nozzle(const app_config &config) {
             texture_desc.Height,
             format);
         if (!publish_result.ok()) {
+            if (publish_result.error().code == nozzle::ErrorCode::Timeout) {
+                // A live input is not a source timeout; drop only this busy-ring frame.
+                deadline = make_deadline(config);
+                std::this_thread::sleep_for(idle_sleep(config));
+                continue;
+            }
             result.error_message = "failed to publish Spout D3D11 texture to nozzle: " + publish_result.error().message;
             result.exit_code = 12;
             return result;
